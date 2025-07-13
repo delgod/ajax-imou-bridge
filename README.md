@@ -7,9 +7,9 @@
 <img src="https://codecov.io/gh/delgod/ajax-imou-bridge/branch/main/graph/badge.svg" alt="Coverage"/>
 -->
 
-A production-grade bridge to link Ajax security systems with Imou cameras, automatically managing camera privacy mode based on the alarm's armed state.
+A robust and reliable bridge that connects Ajax security systems with Imou cameras, automatically managing camera privacy settings based on the alarm's armed state.
 
-This daemon listens for arm/disarm events from an Ajax Hub using the SIA DC-09 protocol and toggles the privacy mode on your Imou cameras accordingly. When you arm the system, cameras are enabled. When you disarm, privacy mode is re-enabled, ensuring your cameras are only active when needed.
+This daemon listens for arming and disarming events from an Ajax Hub via the SIA DC-09 protocol. It then toggles the privacy mode on your Imou cameras accordingly: when the system is armed, camera recording is activated; when disarmed, privacy mode is re-enabled, ensuring cameras are active only when necessary.
 
 ## Architecture
 
@@ -27,7 +27,7 @@ This daemon listens for arm/disarm events from an Ajax Hub using the SIA DC-09 p
 
 *   **SIA DC-09 Protocol Receiver**
 *   **Asynchronous & Lightweight**
-*   **Production Hardened**
+*   **Reliable and Robust**
 
 ## Prerequisites
 
@@ -39,37 +39,37 @@ This daemon listens for arm/disarm events from an Ajax Hub using the SIA DC-09 p
 
 ### Create Imou API Credentials
 
-1. Go to [Imou Developers](https://open.imoulife.com) and sign in with your Imou account.
-2. Go to [Control Board](https://open.imoulife.com/consoleNew/myApp/appInfo) and click on "App Information".
-4. Create API Key and save it to a secure location.
+1.  Go to the [Imou Developer Portal](https://open.imoulife.com) and sign in with your Imou account.
+2.  Navigate to [Control Board](https://open.imoulife.com/consoleNew/myApp/appInfo) and select "My Applications".
+3.  Create an application to obtain your App ID and App Secret. Store these credentials in a secure location.
 
 ### Ajax Hub Configuration
 
-Follow the [official Ajax documentation](https://support.ajax.systems/en/how-to-use-sia-for-cms-connection/) to configure your Hub to send events to the bridge.
+Follow the [official Ajax documentation](https://support.ajax.systems/en/how-to-use-sia-for-cms-connection/) to configure your Hub to send alarm events to the bridge.
 
-In your Ajax App (only admin with full rights has enogh permissions):
+To configure the Hub, you will need administrator privileges for the Ajax system.
 
-1. Go to Hub Settings → Security Companies → Monitoring Station.
-2. Set the following parameters:
-    * **Ethernet** channel if Ajax Hub connected to Ethernet cable.
-    * **Cellular** channel if bridge is accessible from the internet.
-    * **IP address**: The IP address of the server running the bridge.
-    * **Port**: The `SIA_PORT` you configured (e.g., `12128`).
-    * **Monitoring station ping interval**.
-    * **Object number**: The `SIA_ACCOUNT` you configured.
-    * **Encryption key**: The `SIA_ENCRYPTION_KEY` if you are using one.
-5. Click "< Back" to save the settings and wait for the "Monitoring station" status to show "Connected".
+1.  In the Ajax mobile application, navigate to **Hub Settings** → **Security Companies** → **Monitoring Station**.
+2.  Set the following parameters:
+    *   **Ethernet**: Enable if the Hub can reach the bridge over a local network.
+    *   **Cellular**: Enable if the Hub can reach the bridge over the internet via a public IP address.
+    *   **IP address**: The IP address of the server where the bridge is running.
+    *   **Port**: The `SIA_PORT` you have configured (e.g., `12128`).
+    *   **Monitoring station ping interval**: Set as required.
+    *   **Object number**: The `SIA_ACCOUNT` you have configured.
+    *   **Encryption key**: The `SIA_ENCRYPTION_KEY` if you are using one.
+3.  Click "**< Back**" to save the settings and wait for the "**Monitoring station**" status to show "**Connected**".
 
 
 ## Configuration
 | Variable | Description | Validation | Default | Required |
-| :--- | :--- | :--- |
-| `SIA_PORT` | TCP port for the SIA listener from your Ajax Hub settings. | 1-49151 | 12128 | Yes |
-| `SIA_ACCOUNT` | SIA account ID from your Ajax Hub settings. | 3-16 hex chars | 000 | Yes |
-| `SIA_ENCRYPTION_KEY` | Optional SIA encryption key from your Ajax Hub settings. | 16 or 32 hex chars| None | No |
-| `IMOU_APP_ID` | Your Imou Developer App ID. | | None | Yes |
-| `IMOU_APP_SECRET` | Your Imou Developer App Secret. | | None | Yes |
-| `LOG_LEVEL` | Logging level | `DEBUG` or `INFO` | INFO | No |
+| :--- | :--- | :--- | :--- |
+| `SIA_PORT` | The TCP port for the SIA listener. | 1-49151 | 12128 | Yes |
+| `SIA_ACCOUNT` | The SIA account identifier, as configured in your Ajax Hub. | 3-16 hex chars | 000 | Yes |
+| `SIA_ENCRYPTION_KEY` | The optional SIA encryption key. Must match the key in your Ajax Hub. | 16 or 32 hex chars| None | No |
+| `IMOU_APP_ID` | Your application ID from the Imou Developer Portal. | | None | Yes |
+| `IMOU_APP_SECRET` | Your application secret from the Imou Developer Portal. | | None | Yes |
+| `LOG_LEVEL` | Logging level. | `DEBUG` or `INFO` | INFO | No |
 
 ## Running as a Docker (recommended)
 ```bash
@@ -116,7 +116,7 @@ See configuration section above.
     sudo systemctl daemon-reload
     sudo systemctl enable --now sia-bridge.service
     ```
-- **Check Service Status:**
+- **Check the Service Status:**
     ```bash
     sudo systemctl status sia-bridge.service
     ```
@@ -133,9 +133,9 @@ To enable verbose logging for troubleshooting, set `LOG_LEVEL=DEBUG` and restart
 
 **Common Issues:**
 
-* **Connection Refused**: Check firewall rules and ensure the `SIA_PORT` is open on the Ajax Hub.
-* **Authentication Failed**: Double-check your `IMOU_APP_ID` and `IMOU_APP_SECRET`.
-* **No Devices Found**: Ensure your cameras are online, controllable in your Imou Life application and support the privacy mode feature.
+*   **Connection Refused**: Check your firewall rules and ensure the `SIA_PORT` is open on the host running the bridge, allowing inbound connections from your Ajax Hub.
+*   **Authentication Failed**: Double-check your `IMOU_APP_ID` and `IMOU_APP_SECRET`.
+*   **No Devices Found**: Ensure your cameras are online, controllable in your Imou Life application and support the privacy mode feature.
 
 ## Reporting Bugs
 
@@ -143,7 +143,7 @@ Please report any bugs or issues on the [GitHub Issues page](https://github.com/
 
 When reporting bugs, please include:
 
-* Steps to reproduce the issue.
-* Your system configuration (OS, Python version).
-* The complete error message and stack trace.
-* Relevant log entries with `LOG_LEVEL=DEBUG`.
+*   Steps to reproduce the issue.
+*   Your system configuration (OS, Python version).
+*   The complete error message and stack trace.
+*   Relevant log entries with `LOG_LEVEL=DEBUG`.
