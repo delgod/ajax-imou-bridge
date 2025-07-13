@@ -1,5 +1,5 @@
 [project]
-name = "sia-receiver"
+name = "sia-bridge"
 version = "0.1.0"
 description = "Standalone SIA protocol service compatible with Ajax alarm systems that toggles Imou camera privacy mode."
 authors = [

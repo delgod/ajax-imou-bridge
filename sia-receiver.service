@@ -1,6 +1,6 @@
 [Unit]
 Description=SIA Protocol Receiver Daemon
-Documentation=https://github.com/delgod/ajax-integrator
+Documentation=https://github.com/delgod/ajax-imou-bridge
 After=network.target network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=60
