@@ -1,0 +1,47 @@
+# .dockerignore
+# This file prevents local development artifacts and sensitive files from
+# being copied into the Docker build context. This is crucial for security,
+# build speed, and final image size.
+
+# Git history
+.git/
+.gitignore
+
+# Docker artifacts
+Dockerfile
+.dockerignore
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*~
+
+# Test and coverage reports
+.pytest_cache/
+.coverage
+htmlcov/
+nosetests.xml
+coverage.xml
+
+# Local configuration
+.env
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# OS-specific files
+.DS_Store
+Thumbs.db 
