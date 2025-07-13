@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Standalone SIA (Security Industry Association) Protocol daemon.
 
@@ -12,7 +13,7 @@ SIA_ACCOUNT           SIA account identifier (3-16 hex chars)     (default: "000
 SIA_ENCRYPTION_KEY    Optional SIA encryption key (hex string)
 IMOU_APP_ID           Imou cloud application id                   (required)
 IMOU_APP_SECRET       Imou cloud application secret               (required)
-LOG_LEVEL             Python logging level (DEBUG, INFO …)        (default: INFO)
+LOG_LEVEL             Python logging level (DEBUG, INFO ...)      (default: INFO)
 """
 
 from __future__ import annotations
@@ -112,10 +113,10 @@ class SIAReceiver:
     async def start(self) -> None:
         """Initialise and start the SIA TCP server."""
         if self._client is not None:
-            logger.warning("Receiver already started – ignoring second start() call")
+            logger.warning("Receiver already started - ignoring second start() call")
             return
 
-        self._client = SIAClient(
+        self._client = SIAClient(  # type: ignore[abstract]
             host="0.0.0.0",
             port=self._cfg.port,
             accounts=[
@@ -134,14 +135,14 @@ class SIAReceiver:
 
         logger.info("Starting SIA TCP server on port %d", self._cfg.port)
         await self._client.async_start(reuse_port=True)
-        logger.info("SIA TCP server started – waiting for events…")
+        logger.info("SIA TCP server started - waiting for events...")
 
     async def stop(self) -> None:
         """Stop the SIA server and clean up resources."""
         if self._client is None:
             return  # Nothing to do
 
-        logger.info("Stopping SIA TCP server …")
+        logger.info("Stopping SIA TCP server ...")
         await self._client.async_stop()
         self._client = None
         logger.info("SIA TCP server stopped")
@@ -168,10 +169,10 @@ class SIAReceiver:
 
         # Map SIA codes to privacy mode state.
         if event.code in {"CL", "NL"}:  # ARM
-            logger.info("Handling ARM event → disabling privacy mode")
+            logger.info("Handling ARM event -> disabling privacy mode")
             await self._set_privacy_mode(False)
         elif event.code == "OP":  # DISARM
-            logger.info("Handling DISARM event → enabling privacy mode")
+            logger.info("Handling DISARM event -> enabling privacy mode")
             await self._set_privacy_mode(True)
 
     async def _set_privacy_mode(self, enabled: bool) -> None:
@@ -191,21 +192,19 @@ class SIAReceiver:
 
                 privacy_switch = imou_device.get_sensor_by_name("closeCamera")
                 if privacy_switch is None:
-                    logger.debug(
-                        "Device %s lacks privacy switch – skipping", device["deviceId"]
-                    )
+                    logger.debug("Device %s lacks privacy switch - skipping", device["deviceId"])
                     continue
 
                 if enabled:
-                    await privacy_switch.async_turn_on()
+                    await privacy_switch.async_turn_on()  # type: ignore[attr-defined]
                 else:
-                    await privacy_switch.async_turn_off()
+                    await privacy_switch.async_turn_off()  # type: ignore[attr-defined]
 
                 channel_name = device.get("channels", [{}])[0].get(
                     "channelName", "<unknown>"
                 )
                 logger.info(
-                    "Device %s (%s) → privacy mode %s",
+                    "Device %s (%s) -> privacy mode %s",
                     device["deviceId"],
                     channel_name,
                     mode_str,
@@ -217,7 +216,7 @@ class SIAReceiver:
 
     def request_shutdown(self, signum: int) -> None:  # noqa: D401
         """Signal handler that schedules receiver shutdown."""
-        logger.info("Received signal %d – commencing shutdown", signum)
+        logger.info("Received signal %d - commencing shutdown", signum)
         self._stop_event.set()
 
 
@@ -235,7 +234,7 @@ def configure_logging(log_level_str: str) -> None:
 
     logging.basicConfig(
         level=level,
-        format="%(asctime)s │ %(levelname)-8s │ %(name)s │ %(message)s",
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
@@ -266,7 +265,7 @@ def main() -> None:  # pragma: no cover
         asyncio.run(_async_main())
     except KeyboardInterrupt:
         # Already handled via signal, but catch to avoid stacktrace when Ctrl-C is pressed early.
-        logger.info("Interrupted by user – exiting")
+        logger.info("Interrupted by user - exiting")
     except Exception as exc:  # broad exception acceptable for top-level guard
         logger.exception("Fatal error: %s", exc)
         sys.exit(1)
