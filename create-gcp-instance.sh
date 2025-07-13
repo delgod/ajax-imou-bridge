@@ -17,13 +17,13 @@ DISK_TYPE="pd-standard"               # Cheapest disk type
 
 # Check if instance already exists
 echo "🔍 Checking if instance '$INSTANCE_NAME' already exists..."
-if gcloud compute instances describe $INSTANCE_NAME --zone=$ZONE --project=$PROJECT_ID &>/dev/null; then
+if gcloud compute instances describe $INSTANCE_NAME --zone=$ZONE --project="$PROJECT_ID" &>/dev/null; then
     echo "✅ Instance '$INSTANCE_NAME' already exists in zone $ZONE"
     echo "ℹ️  Skipping instance creation..."
 else
     echo "🚀 Creating new instance '$INSTANCE_NAME'..."
     gcloud compute instances create $INSTANCE_NAME \
-        --project=$PROJECT_ID \
+        --project="$PROJECT_ID" \
         --zone=$ZONE \
         --machine-type=$MACHINE_TYPE \
         --image-family=$IMAGE_FAMILY \
@@ -37,18 +37,18 @@ else
         --no-service-account \
         --no-scopes \
         --tags=sia-bridge \
-        --metadata=enable-oslogin=FALSE 
+        --metadata=enable-oslogin=FALSE
     echo -e "✅ Instance created successfully!"
 fi
 
 # Create firewall rule for SIA bridge port
 echo "🔥 Checking/creating firewall rule for port 12128..."
-if gcloud compute firewall-rules describe allow-sia-bridge --project=$PROJECT_ID &>/dev/null; then
+if gcloud compute firewall-rules describe allow-sia-bridge --project="$PROJECT_ID" &>/dev/null; then
     echo "✅ Firewall rule 'allow-sia-bridge' already exists"
 else
     echo "🚀 Creating firewall rule 'allow-sia-bridge'..."
     gcloud compute firewall-rules create allow-sia-bridge \
-        --project=$PROJECT_ID \
+        --project="$PROJECT_ID" \
         --allow tcp:12128 \
         --source-ranges 0.0.0.0/0 \
         --target-tags sia-bridge \
@@ -58,7 +58,7 @@ fi
 
 # Get the external IP
 echo "🌐 Getting instance information..."
-EXTERNAL_IP=$(gcloud compute instances describe $INSTANCE_NAME --zone=$ZONE --project=$PROJECT_ID --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+EXTERNAL_IP=$(gcloud compute instances describe $INSTANCE_NAME --zone=$ZONE --project="$PROJECT_ID" --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
 
 echo ""
 echo -e "🎉 Instance created successfully!"
@@ -75,7 +75,7 @@ echo "1. SSH to the instance:"
 echo "   gcloud compute ssh $INSTANCE_NAME --zone=$ZONE"
 echo ""
 echo "2. Install Python and dependencies:"
-echo "   sudo apt update && sudo apt install -y git python3-pip"
+echo "   sudo apt update && sudo apt install -y git vim python3-pip"
 echo "   sudo apt install -y python3-snowballstemmer python3-tz python3-typing-extensions \\"
 echo "      python3-pydocstyle python3-pycryptodome python3-packaging python3-mypy-extensions \\"
 echo "      python3-multidict python3-idna python3-greenlet python3-frozenlist python3-yarl \\"
@@ -84,14 +84,18 @@ echo ""
 echo "3. Install the SIA Bridge package from PyPI (or GitHub):"
 echo "   sudo pip3 install --break-system-packages git+https://github.com/delgod/ajax-imou-bridge.git"
 echo ""
-echo "4. Copy configuration and service files to the correct locations:" 
+echo "4. Copy configuration and service files to the correct locations:"
 echo "   # Files are included in the package installation"
-echo "   sudo cp /usr/local/lib/python3.*/dist-packages/sia-bridge.conf /etc/sia-bridge.conf"
-echo "   sudo cp /usr/local/lib/python3.*/disk-packages/sia-bridge.service /etc/systemd/system/"
+echo "   sudo cp /usr/local/lib/python3.*/dist-packages/sia_bridge/sia-bridge.conf /etc/sia-bridge.conf"
+echo "   sudo cp /usr/local/lib/python3.*/dist-packages/sia_bridge/sia-bridge.service /etc/systemd/system/"
 echo ""
-echo "5. Enable and start the systemd service:"
+echo "5. Add IMOU_APP_ID and IMOU_APP_SECRET to the configuration file:"
+echo "   sudo vim /etc/sia-bridge.conf"
+echo ""
+echo "6. Enable and start the systemd service:"
 echo "   sudo systemctl daemon-reload"
 echo "   sudo systemctl enable --now sia-bridge.service"
+echo "   journalctl -u sia-bridge.service -f"
 echo ""
-echo "6. Your SIA bridge will be accessible at: $EXTERNAL_IP:12128"
+echo "7. Your SIA bridge will be accessible at: $EXTERNAL_IP:12128"
 echo ""

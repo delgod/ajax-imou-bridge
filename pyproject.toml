@@ -37,5 +37,8 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["sia_bridge"]
-include-package-data = true 
+package-dir = {"" = "src"}
+packages = ["sia_bridge"]
+
+[tool.setuptools.package-data]
+sia_bridge = ["*.service", "*.conf"]
