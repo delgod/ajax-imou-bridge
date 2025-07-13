@@ -45,85 +45,40 @@ def load_config() -> Dict[str, Any]:
         logger.error(f"Invalid port number: {os.getenv('SIA_PORT', '12128')}")
         sys.exit(1)
     
-    config["account_id"] = os.getenv("SIA_ACCOUNT", "000")
-    config["encryption_key"] = os.getenv("SIA_ENCRYPTION_KEY")
+    config["sia_account_id"] = os.getenv("SIA_ACCOUNT", "000")
+    config["sia_encryption_key"] = os.getenv("SIA_ENCRYPTION_KEY")
     
-    logger.info(f"Loaded configuration: port={config['port']}, account={config['account_id']}")
+    logger.info(f"Loaded configuration: port={config['port']}, account={config['sia_account_id']}")
     
     return config
 
 
-def create_sia_account(config: Dict[str, Any]) -> SIAAccount:
+def get_sia_account(config: Dict[str, Any]) -> SIAAccount:
     """Create SIAAccount object from configuration."""
     default_timeband = (80, 40)  # Default timeband from HA component
     
     try:
         account = SIAAccount(
-            account_id=config["account_id"],
-            key=config["encryption_key"],
+            account_id=config["sia_account_id"],
+            key=config["sia_encryption_key"],
             allowed_timeband=default_timeband
         )
-        logger.info(f"Created SIA account: {config['account_id']} with timestamp validation enabled")
+        logger.info(f"Got SIA account: {config['sia_account_id']} with timestamp validation enabled")
         return account
     except Exception as e:
-        logger.error(f"Failed to create SIA account {config['account_id']}: {e}")
+        logger.error(f"Failed to get SIA account {config['account_id']}: {e}")
         sys.exit(1)
 
 
 async def handle_sia_event(event: SIAEvent) -> None:
     """Handle incoming SIA events by printing them to stdout."""
-    # Create a formatted event dictionary
-    event_data = {
-        "timestamp": datetime.now().isoformat(),
-        "account": event.account,
-        "sequence": event.sequence,
-        "receiver": event.receiver,
-        "line": event.line,
-        "content": event.content,
-        "message_type": event.message_type.value if hasattr(event.message_type, 'value') else str(event.message_type),
-        "ti": event.ti,
-        "id": event.id,
-        "ri": event.ri,
-        "code": event.code,
-        "message": event.message,
-        "x_data": event.x_data,
-        "event_timestamp": event.timestamp.isoformat() if isinstance(event.timestamp, datetime) else str(event.timestamp),
-        "event_qualifier": event.event_qualifier,
-        "event_type": event.event_type,
-        "partition": event.partition,
-    }
-    
-    # Add extended data if present
-    if event.extended_data:
-        event_data["extended_data"] = [
-            {
-                "identifier": xd.identifier,
-                "name": xd.name,
-                "description": xd.description,
-                "length": xd.length,
-                "characters": xd.characters,
-                "value": xd.value,
-            }
-            for xd in event.extended_data
-        ]
-    
-    # Add SIA code information if present
-    if event.sia_code:
-        event_data["sia_code"] = {
-            "code": event.sia_code.code,
-            "type": event.sia_code.type,
-            "description": event.sia_code.description,
-            "concerns": event.sia_code.concerns,
-        }
-    
-    # Print to stdout as JSON
-    # print(json.dumps(event_data, indent=2))
-    sys.stdout.flush()
-    
-    # Log to stderr for debugging
     logger.debug(f"Received SIA event: account={event.account}, code={event.code}, "
                  f"message={event.message}, zone={event.ri}, "
                  f"type={event.sia_code.type if event.sia_code else ''}")
+    if event.code in ["CL", "NL"]:
+        logger.info(f"Received ARM event: {event}")
+    elif event.code == "OP":
+        logger.info(f"Received DISARM event: {event}")
 
 
 async def shutdown() -> None:
@@ -155,7 +110,7 @@ async def start_daemon() -> None:
     config = load_config()
     
     # Create SIA account
-    sia_account = create_sia_account(config)
+    sia_account = get_sia_account(config)
     
     # Create SIA client
     client = SIAClient(
