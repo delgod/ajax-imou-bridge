@@ -1,188 +1,276 @@
-#!/usr/bin/env python3
-"""Standalone SIA (Security Industry Association) Protocol Daemon.
-
-This script creates a standalone daemon that listens for SIA alarm system messages
-and prints them to stdout. Configuration is read from environment variables.
-
-Environment Variables:
-    SIA_PORT: Network port to listen on (default: 12128)
-    SIA_ACCOUNT: Account ID (hex string, 3-16 chars)
-    SIA_ENCRYPTION_KEY: Encryption key (optional, hex string)
-
-Example usage:
-    export SIA_PORT=7777
-    export SIA_ACCOUNT="1234"
-    export SIA_ENCRYPTION_KEY="abcdef1234567890"
-    python sia_daemon.py
-
-
 """
+Standalone SIA (Security Industry Association) Protocol daemon.
+
+This script listens for SIA events and toggles privacy mode on Imou cameras
+accordingly. Configuration is sourced from environment variables for easy
+containerisation / deployment.
+
+Environment Variables
+---------------------
+SIA_PORT              Port to bind the SIA TCP server             (default: 12128)
+SIA_ACCOUNT           SIA account identifier (3-16 hex chars)     (default: "000")
+SIA_ENCRYPTION_KEY    Optional SIA encryption key (hex string)
+IMOU_APP_ID           Imou cloud application id                   (required)
+IMOU_APP_SECRET       Imou cloud application secret               (required)
+LOG_LEVEL             Python logging level (DEBUG, INFO …)        (default: INFO)
+"""
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import os
 import signal
 import sys
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from typing import Optional
+
+import aiohttp
 from imouapi.api import ImouAPIClient
 from imouapi.device import ImouDevice
-import aiohttp
 from pysiaalarm.aio import CommunicationsProtocol, SIAAccount, SIAClient, SIAEvent
 
-
-# Global state
-client: Optional[SIAClient] = None
-running = True
-logger = logging.getLogger("sia_daemon")
-config = {}
+LOGGER_NAME = "sia_receiver"
+logger = logging.getLogger(LOGGER_NAME)
 
 
-def load_config() -> Dict[str, Any]:
-    """Load configuration from environment variables."""
-    config = {}
-
-    try:
-        config["port"] = int(os.getenv("SIA_PORT", "12128"))
-    except ValueError:
-        logger.error(f"Invalid port number: {os.getenv('SIA_PORT', '12128')}")
-        sys.exit(1)
-
-    config["sia_account_id"] = os.getenv("SIA_ACCOUNT", "000")
-    config["sia_encryption_key"] = os.getenv("SIA_ENCRYPTION_KEY")
-    config["imou_app_id"] = os.getenv("IMOU_APP_ID")
-    config["imou_app_secret"] = os.getenv("IMOU_APP_SECRET")
-
-    if not config.get("imou_app_id") or not config.get("imou_app_secret"):
-        logger.error("IMOU_APP_ID and IMOU_APP_SECRET must be set in the environment.")
-        sys.exit(1)
-
-    logger.info(
-        f"Loaded configuration: port={config['port']}, account={config['sia_account_id']}"
-    )
-
-    return config
+# ---------------------------------------------------------------------------
+# Configuration helpers
+# ---------------------------------------------------------------------------
 
 
-async def handle_sia_event(event: SIAEvent) -> None:
-    """Handle incoming SIA events by printing them to stdout."""
-    logger.debug(
-        f"Received SIA event: account={event.account}, code={event.code}, "
-        f"message={event.message}, zone={event.ri}, "
-        f"type={event.sia_code.type if event.sia_code else ''}"
-    )
-    if event.code in ["CL", "NL"]:
-        logger.info("Received ARM event")
-        await set_privacy_mode(False)
-    elif event.code == "OP":
-        logger.info("Received DISARM event")
-        await set_privacy_mode(True)
+@dataclass(frozen=True)
+class Config:
+    """Runtime configuration object populated from environment variables."""
 
+    port: int
+    sia_account_id: str
+    sia_encryption_key: Optional[str]
+    imou_app_id: str
+    imou_app_secret: str
+    log_level: str
 
-async def set_privacy_mode(mode: bool) -> None:
-    """Turn privacy mode on or off for a device."""
-    async with aiohttp.ClientSession() as session:
+    @classmethod
+    def from_env(cls) -> "Config":
+        """Build a :class:`Config` instance using environment variables."""
         try:
-            logger.info(f"Turning privacy mode {mode}...")
-            api_client = ImouAPIClient(
-                config["imou_app_id"], config["imou_app_secret"], session
+            port = int(os.getenv("SIA_PORT", "12128"))
+        except ValueError as exc:
+            logger.error("Invalid SIA_PORT value: %s", os.environ.get("SIA_PORT"))
+            raise SystemExit(1) from exc
+
+        sia_account_id = os.getenv("SIA_ACCOUNT", "000")
+        sia_encryption_key = os.getenv("SIA_ENCRYPTION_KEY")
+        log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+        imou_app_id = os.getenv("IMOU_APP_ID")
+        imou_app_secret = os.getenv("IMOU_APP_SECRET")
+
+        if not imou_app_id or not imou_app_secret:
+            logger.error(
+                "Environment variables IMOU_APP_ID and IMOU_APP_SECRET are required."
             )
-            discovered_devices = await api_client.async_api_deviceBaseList()
-            for device in discovered_devices["deviceList"]:
+            raise SystemExit(1)
+
+        return cls(
+            port=port,
+            sia_account_id=sia_account_id,
+            sia_encryption_key=sia_encryption_key,
+            imou_app_id=imou_app_id,
+            imou_app_secret=imou_app_secret,
+            log_level=log_level_str,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Core receiver implementation
+# ---------------------------------------------------------------------------
+
+
+class SIAReceiver:
+    """Async context manager wrapping :class:`pysiaalarm.aio.SIAClient`."""
+
+    def __init__(self, config: Config) -> None:
+        self._cfg = config
+        self._client: Optional[SIAClient] = None
+        self._stop_event = asyncio.Event()
+
+    # ---------------------------------------------------------------------
+    # Async context-manager helpers
+    # ---------------------------------------------------------------------
+
+    async def __aenter__(self) -> "SIAReceiver":
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.stop()
+
+    # ---------------------------------------------------------------------
+    # Public API
+    # ---------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Initialise and start the SIA TCP server."""
+        if self._client is not None:
+            logger.warning("Receiver already started – ignoring second start() call")
+            return
+
+        self._client = SIAClient(
+            host="0.0.0.0",
+            port=self._cfg.port,
+            accounts=[
+                SIAAccount(
+                    account_id=self._cfg.sia_account_id,
+                    key=self._cfg.sia_encryption_key,
+                    allowed_timeband=(80, 40),
+                )
+            ],
+            function=self._handle_sia_event,  # callback
+            protocol=CommunicationsProtocol("TCP"),
+        )
+
+        # Tell type checkers `_client` is definitely assigned from here on.
+        assert self._client is not None
+
+        logger.info("Starting SIA TCP server on port %d", self._cfg.port)
+        await self._client.async_start(reuse_port=True)
+        logger.info("SIA TCP server started – waiting for events…")
+
+    async def stop(self) -> None:
+        """Stop the SIA server and clean up resources."""
+        if self._client is None:
+            return  # Nothing to do
+
+        logger.info("Stopping SIA TCP server …")
+        await self._client.async_stop()
+        self._client = None
+        logger.info("SIA TCP server stopped")
+
+    async def run_forever(self) -> None:
+        """Block until :pyattr:`_stop_event` is set, then shut down."""
+        await self._stop_event.wait()
+
+    # ---------------------------------------------------------------------
+    # Internal helpers
+    # ---------------------------------------------------------------------
+
+    async def _handle_sia_event(self, event: SIAEvent) -> None:  # noqa: D401
+        """Async callback processing inbound SIA events."""
+        details = (
+            "account=%s, code=%s, message=%s, zone=%s, type=%s",
+            event.account,
+            event.code,
+            event.message,
+            event.ri,
+            event.sia_code.type if event.sia_code else "",
+        )
+        logger.debug("Received SIA event: " + details[0], *details[1:])
+
+        # Map SIA codes to privacy mode state.
+        if event.code in {"CL", "NL"}:  # ARM
+            logger.info("Handling ARM event → disabling privacy mode")
+            await self._set_privacy_mode(False)
+        elif event.code == "OP":  # DISARM
+            logger.info("Handling DISARM event → enabling privacy mode")
+            await self._set_privacy_mode(True)
+
+    async def _set_privacy_mode(self, enabled: bool) -> None:
+        """Toggle Imou camera privacy mode."""
+        mode_str = "ON" if enabled else "OFF"
+        logger.info("Toggling camera privacy mode: %s", mode_str)
+
+        async with aiohttp.ClientSession() as session:
+            api_client = ImouAPIClient(
+                self._cfg.imou_app_id, self._cfg.imou_app_secret, session
+            )
+            devices = await api_client.async_api_deviceBaseList()
+
+            for device in devices.get("deviceList", []):
                 imou_device = ImouDevice(api_client, device["deviceId"])
                 await imou_device.async_initialize()
-                closeCamera = imou_device.get_sensor_by_name("closeCamera")
-                if closeCamera:
-                    if mode:
-                        await closeCamera.async_turn_on()
-                    else:
-                        await closeCamera.async_turn_off()
-                device_id = device["deviceId"]
-                device_name = device["channels"][0]["channelName"]
-                logger.info(f"Device: {device_id} ({device_name}) privacy mode {mode}")
-        except Exception as e:
-            logger.error(f"An error occurred: {e}")
-            sys.exit(1)
+
+                privacy_switch = imou_device.get_sensor_by_name("closeCamera")
+                if privacy_switch is None:
+                    logger.debug(
+                        "Device %s lacks privacy switch – skipping", device["deviceId"]
+                    )
+                    continue
+
+                if enabled:
+                    await privacy_switch.async_turn_on()
+                else:
+                    await privacy_switch.async_turn_off()
+
+                channel_name = device.get("channels", [{}])[0].get(
+                    "channelName", "<unknown>"
+                )
+                logger.info(
+                    "Device %s (%s) → privacy mode %s",
+                    device["deviceId"],
+                    channel_name,
+                    mode_str,
+                )
+
+    # ---------------------------------------------------------------------
+    # Signal handling helpers
+    # ---------------------------------------------------------------------
+
+    def request_shutdown(self, signum: int) -> None:  # noqa: D401
+        """Signal handler that schedules receiver shutdown."""
+        logger.info("Received signal %d – commencing shutdown", signum)
+        self._stop_event.set()
 
 
-async def shutdown() -> None:
-    """Shutdown the SIA daemon."""
-    global client
-    logger.info("Shutting down SIA daemon...")
-    if client:
-        try:
-            await client.async_stop()
-            logger.info("SIA client stopped")
-        except Exception as e:
-            logger.error(f"Error stopping SIA client: {e}")
+# ---------------------------------------------------------------------------
+# Utility functions
+# ---------------------------------------------------------------------------
 
 
-def signal_handler(signum, frame):
-    """Handle shutdown signals."""
-    global running
-    logger.info(f"Received signal {signum}, shutting down...")
-    running = False
+def configure_logging(log_level_str: str) -> None:
+    """Configure root logger using provided log level string from Config."""
+    try:
+        level = getattr(logging, log_level_str.upper(), logging.INFO)
+    except AttributeError:
+        level = logging.INFO
 
-
-async def start_daemon() -> None:
-    """Start the SIA daemon."""
-    global client, running
-
-    logger.info("Starting SIA daemon...")
-
-    # Create SIA client
-    client = SIAClient(
-        host="0.0.0.0",  # Listen on all interfaces
-        port=config["port"],
-        accounts=[
-            SIAAccount(
-                account_id=config["sia_account_id"],
-                key=config["sia_encryption_key"],
-                allowed_timeband=(80, 40),
-            )
-        ],
-        function=handle_sia_event,
-        protocol=CommunicationsProtocol("TCP"),
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s │ %(levelname)-8s │ %(name)s │ %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+
+
+async def _async_main() -> None:
+    """Async entrypoint used by :pyfunc:`asyncio.run`."""
+    cfg = Config.from_env()
+    configure_logging(cfg.log_level)
+    receiver = SIAReceiver(cfg)
+
+    # Install signal handlers for graceful shutdown.
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, receiver.request_shutdown, sig)
+
+    async with receiver:
+        await receiver.run_forever()
+
+
+def main() -> None:  # pragma: no cover
+    """Synchronous wrapper starting the asyncio event loop."""
     try:
-        # Start the SIA client
-        await client.async_start(reuse_port=True)
-        logger.info(f"SIA daemon started on port {config['port']}")
-
-        # Keep running until stopped
-        while running:
-            await asyncio.sleep(1)
-
-    except OSError as e:
-        logger.error(f"Failed to start SIA server on port {config['port']}: {e}")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        sys.exit(1)
-    finally:
-        await shutdown()
-
-
-async def main():
-    """Main entry point."""
-    global config
-
-    # Setup logging and config
-    logging.basicConfig(level=logging.INFO)
-    config = load_config()
-
-    # Setup signal handlers for graceful shutdown
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    try:
-        await start_daemon()
+        asyncio.run(_async_main())
     except KeyboardInterrupt:
-        logger.info("Interrupted by user")
-    except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        # Already handled via signal, but catch to avoid stacktrace when Ctrl-C is pressed early.
+        logger.info("Interrupted by user – exiting")
+    except Exception as exc:  # broad exception acceptable for top-level guard
+        logger.exception("Fatal error: %s", exc)
         sys.exit(1)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
