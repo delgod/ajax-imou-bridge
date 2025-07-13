@@ -1,0 +1,39 @@
+[project]
+name = "sia-receiver"
+version = "0.1.0"
+description = "Standalone SIA protocol service compatible with Ajax alarm systems that toggles Imou camera privacy mode."
+authors = [
+  { name = "Mykola Marzhan", email = "delgod@delgod.com" }
+]
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+keywords = ["sia", "ajax", "ajax-alarm", "security", "imou", "camera", "alarm-system"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+]
+
+# Runtime dependencies
+dependencies = [
+  "aiohttp>=3.9",
+  "pysiaalarm>=0.6.0",
+  "imouapi>=0.3.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff",
+  "pytest",
+]
+
+[project.scripts]
+sia-receiver = "sia_receiver:main"
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["sia_receiver"] 
