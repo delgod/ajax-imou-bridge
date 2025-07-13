@@ -63,7 +63,7 @@ To configure the Hub, you will need administrator privileges for the Ajax system
 
 ## Configuration
 | Variable | Description | Validation | Default | Required |
-| :--- | :--- | :--- | :--- |
+| :--- | :--- | :--- | :--- | :--- |
 | `SIA_PORT` | The TCP port for the SIA listener. | 1-49151 | 12128 | Yes |
 | `SIA_ACCOUNT` | The SIA account identifier, as configured in your Ajax Hub. | 3-16 hex chars | 000 | Yes |
 | `SIA_ENCRYPTION_KEY` | The optional SIA encryption key. Must match the key in your Ajax Hub. | 16 or 32 hex chars| None | No |
