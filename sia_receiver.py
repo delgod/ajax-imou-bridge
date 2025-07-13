@@ -29,7 +29,8 @@ from typing import Optional
 import aiohttp
 from imouapi.api import ImouAPIClient
 from imouapi.device import ImouDevice
-from pysiaalarm.aio import CommunicationsProtocol, SIAAccount, SIAClient, SIAEvent
+from pysiaalarm.aio import CommunicationsProtocol, SIAAccount, SIAEvent
+from pysiaalarm.aio.client import SIAClient
 
 LOGGER_NAME = "sia_receiver"
 logger = logging.getLogger(LOGGER_NAME)
@@ -94,6 +95,7 @@ class SIAReceiver:
         self._cfg = config
         self._client: Optional[SIAClient] = None
         self._stop_event = asyncio.Event()
+        self._privacy_lock = asyncio.Lock()
 
     # ---------------------------------------------------------------------
     # Async context-manager helpers
@@ -176,39 +178,48 @@ class SIAReceiver:
             await self._set_privacy_mode(True)
 
     async def _set_privacy_mode(self, enabled: bool) -> None:
-        """Toggle Imou camera privacy mode."""
-        mode_str = "ON" if enabled else "OFF"
-        logger.info("Toggling camera privacy mode: %s", mode_str)
+        """Toggle Imou camera privacy mode.
 
-        async with aiohttp.ClientSession() as session:
-            api_client = ImouAPIClient(
-                self._cfg.imou_app_id, self._cfg.imou_app_secret, session
-            )
-            devices = await api_client.async_api_deviceBaseList()
+        Serialised via an instance-level asyncio.Lock so that only one
+        privacy-mode operation can run at a time, even if multiple SIA
+        events arrive in quick succession.
+        """
 
-            for device in devices.get("deviceList", []):
-                imou_device = ImouDevice(api_client, device["deviceId"])
-                await imou_device.async_initialize()
+        async with self._privacy_lock:
+            mode_str = "ON" if enabled else "OFF"
+            logger.info("Toggling camera privacy mode: %s", mode_str)
 
-                privacy_switch = imou_device.get_sensor_by_name("closeCamera")
-                if privacy_switch is None:
-                    logger.debug("Device %s lacks privacy switch - skipping", device["deviceId"])
-                    continue
-
-                if enabled:
-                    await privacy_switch.async_turn_on()  # type: ignore[attr-defined]
-                else:
-                    await privacy_switch.async_turn_off()  # type: ignore[attr-defined]
-
-                channel_name = device.get("channels", [{}])[0].get(
-                    "channelName", "<unknown>"
+            async with aiohttp.ClientSession() as session:
+                api_client = ImouAPIClient(
+                    self._cfg.imou_app_id, self._cfg.imou_app_secret, session
                 )
-                logger.info(
-                    "Device %s (%s) -> privacy mode %s",
-                    device["deviceId"],
-                    channel_name,
-                    mode_str,
-                )
+                devices = await api_client.async_api_deviceBaseList()
+
+                for device in devices.get("deviceList", []):
+                    imou_device = ImouDevice(api_client, device["deviceId"])
+                    await imou_device.async_initialize()
+
+                    privacy_switch = imou_device.get_sensor_by_name("closeCamera")
+                    if privacy_switch is None:
+                        logger.debug(
+                            "Device %s lacks privacy switch - skipping", device["deviceId"]
+                        )
+                        continue
+
+                    if enabled:
+                        await privacy_switch.async_turn_on()  # type: ignore[attr-defined]
+                    else:
+                        await privacy_switch.async_turn_off()  # type: ignore[attr-defined]
+
+                    channel_name = device.get("channels", [{}])[0].get(
+                        "channelName", "<unknown>"
+                    )
+                    logger.info(
+                        "Device %s (%s) -> privacy mode %s",
+                        device["deviceId"],
+                        channel_name,
+                        mode_str,
+                    )
 
     # ---------------------------------------------------------------------
     # Signal handling helpers
