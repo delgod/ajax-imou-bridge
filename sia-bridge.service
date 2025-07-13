@@ -1,5 +1,5 @@
 [Unit]
-Description=SIA Protocol Receiver Daemon
+Description=SIA Bridge Service
 Documentation=https://github.com/delgod/ajax-imou-bridge
 After=network.target network-online.target
 Wants=network-online.target
@@ -11,8 +11,8 @@ Type=simple
 User=nobody
 Group=nogroup
 WorkingDirectory=/tmp
-EnvironmentFile=/etc/sia-receiver.conf
-ExecStart=/usr/local/bin/sia_receiver.py
+EnvironmentFile=/etc/sia-bridge.conf
+ExecStart=/usr/local/bin/sia_bridge.py
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5
@@ -38,7 +38,7 @@ SystemCallErrorNumber=EPERM
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=sia-receiver
+SyslogIdentifier=sia-bridge
 
 # Resource limits
 LimitNOFILE=65536

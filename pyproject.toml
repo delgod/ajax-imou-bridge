@@ -29,11 +29,11 @@ dev = [
 ]
 
 [project.scripts]
-sia-receiver = "sia_receiver:main"
+sia-bridge = "sia_bridge:main"
 
 [build-system]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["sia_receiver"] 
+py-modules = ["sia_bridge"] 

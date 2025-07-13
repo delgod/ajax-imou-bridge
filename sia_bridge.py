@@ -32,7 +32,7 @@ from imouapi.device import ImouDevice
 from pysiaalarm.aio import CommunicationsProtocol, SIAAccount, SIAEvent
 from pysiaalarm.aio.client import SIAClient
 
-LOGGER_NAME = "sia_receiver"
+LOGGER_NAME = "sia_bridge"
 logger = logging.getLogger(LOGGER_NAME)
 
 
@@ -88,7 +88,7 @@ class Config:
 # ---------------------------------------------------------------------------
 
 
-class SIAReceiver:
+class SIABridge:
     """Async context manager wrapping :class:`pysiaalarm.aio.SIAClient`."""
 
     def __init__(self, config: Config) -> None:
@@ -101,7 +101,7 @@ class SIAReceiver:
     # Async context-manager helpers
     # ---------------------------------------------------------------------
 
-    async def __aenter__(self) -> "SIAReceiver":
+    async def __aenter__(self) -> "SIABridge":
         await self.start()
         return self
 
@@ -259,7 +259,7 @@ async def _async_main() -> None:
     """Async entrypoint used by :pyfunc:`asyncio.run`."""
     cfg = Config.from_env()
     configure_logging(cfg.log_level)
-    receiver = SIAReceiver(cfg)
+    receiver = SIABridge(cfg)
 
     # Install signal handlers for graceful shutdown.
     loop = asyncio.get_running_loop()
