@@ -30,10 +30,12 @@ dev = [
 
 [project.scripts]
 sia-bridge = "sia_bridge:main"
+sia-bridge-config = "sia_bridge:show_config_files"
 
 [build-system]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["sia_bridge"] 
+py-modules = ["sia_bridge"]
+include-package-data = true 

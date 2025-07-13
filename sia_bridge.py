@@ -202,7 +202,8 @@ class SIABridge:
                     privacy_switch = imou_device.get_sensor_by_name("closeCamera")
                     if privacy_switch is None:
                         logger.debug(
-                            "Device %s lacks privacy switch - skipping", device["deviceId"]
+                            "Device %s lacks privacy switch - skipping",
+                            device["deviceId"],
                         )
                         continue
 
@@ -268,6 +269,34 @@ async def _async_main() -> None:
 
     async with receiver:
         await receiver.run_forever()
+
+
+def show_config_files() -> None:  # pragma: no cover
+    """Show the location of configuration files included in the package."""
+    try:
+        # Use importlib.resources.files to get a traversable object for the package
+        # In this case, for a top-level module, we refer to it directly.
+        from importlib.resources import files
+        service_file = files("sia_bridge").joinpath("sia-bridge.service")
+        config_file = files("sia_bridge").joinpath("sia-bridge.conf")
+    except (ImportError, AttributeError):
+        # Fallback for older Python versions if needed, though requires-python>=3.9
+        # should make this unnecessary.
+        print("Error: Could not locate packaged data files. Please ensure you are using Python 3.9+.", file=sys.stderr)
+        sys.exit(1)
+
+
+    print("SIA Bridge configuration files location:")
+    print(f"  Service file: {service_file}")
+    print(f"  Config file:  {config_file}")
+    print()
+    print("To install these files to system locations (example paths):")
+    print(f"  sudo cp {service_file} /etc/systemd/system/")
+    print(f"  sudo cp {config_file} /etc/sia-bridge.conf")
+    print()
+    print("Then enable and start the service:")
+    print("  sudo systemctl daemon-reload")
+    print("  sudo systemctl enable --now sia-bridge.service")
 
 
 def main() -> None:  # pragma: no cover

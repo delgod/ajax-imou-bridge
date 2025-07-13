@@ -1,0 +1,4 @@
+include sia-bridge.service
+include sia-bridge.conf
+include LICENSE
+include README.md 
