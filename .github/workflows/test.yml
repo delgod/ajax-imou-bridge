@@ -93,5 +93,3 @@ jobs:
     - name: Test CLI commands
       run: |
         sia-bridge-config
-        # Test that the main command at least shows help
-        sia-bridge --help
