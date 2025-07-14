@@ -44,6 +44,15 @@ RUN pip install .
 # ==============================================================================
 FROM python:3.12-slim-bullseye AS final
 
+# Metadata labels following OCI standards
+LABEL org.opencontainers.image.title="SIA Bridge"
+LABEL org.opencontainers.image.description="Production-grade SIA protocol bridge for Ajax/Imou integration"
+LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.authors="Mykola Marzhan <delgod@delgod.com>"
+LABEL org.opencontainers.image.source="https://github.com/delgod/ajax-imou-bridge"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.documentation="https://github.com/delgod/ajax-imou-bridge/blob/main/README.md"
+
 # Set runtime environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

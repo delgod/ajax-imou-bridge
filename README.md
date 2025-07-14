@@ -81,7 +81,7 @@ docker run -d \
     -e SIA_ACCOUNT=000 \
     -e IMOU_APP_ID=<your_app_id> \
     -e IMOU_APP_SECRET=<your_app_secret> \
-    sia-bridge:latest
+    ghcr.io/delgod/sia-bridge:latest
 ```
 See configuration section above.
 
