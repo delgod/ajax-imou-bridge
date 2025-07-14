@@ -1,0 +1,17 @@
+# Runtime Dependencies
+-r requirements.txt
+
+# Testing
+pytest
+pytest-asyncio
+pytest-cov
+mock
+
+# Linting & Formatting
+ruff
+black
+mypy
+
+# Security
+bandit[toml]
+safety 
