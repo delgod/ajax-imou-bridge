@@ -42,3 +42,9 @@ packages = ["sia_bridge"]
 
 [tool.setuptools.package-data]
 sia_bridge = ["*.service", "*.conf"]
+
+[tool.mypy]
+# Ignore missing stubs for the untyped `imouapi` library.
+[[tool.mypy.overrides]]
+module = "imouapi.*"
+ignore_missing_imports = true
