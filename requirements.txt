@@ -1,3 +1,4 @@
 pysiaalarm>=3.1.1
 imouapi>=1.0.15
 aiohttp>=3.9.1
+setuptools<81

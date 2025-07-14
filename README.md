@@ -81,7 +81,6 @@ docker run -d \
     -e SIA_ACCOUNT=000 \
     -e IMOU_APP_ID=<your_app_id> \
     -e IMOU_APP_SECRET=<your_app_secret> \
-    -v sia-bridge-data:/app/data \
     sia-bridge:latest
 ```
 See configuration section above.
