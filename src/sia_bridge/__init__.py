@@ -118,6 +118,9 @@ class SIABridge:
             logger.warning("Receiver already started - ignoring second start() call")
             return
 
+        # Log initial camera state before starting the server.
+        await self._log_initial_camera_state()
+
         self._client = SIAClient(  # type: ignore[abstract]
             host="0.0.0.0",
             port=self._cfg.port,
@@ -156,6 +159,55 @@ class SIABridge:
     # ---------------------------------------------------------------------
     # Internal helpers
     # ---------------------------------------------------------------------
+
+    async def _log_initial_camera_state(self) -> None:
+        """Log the initial state of camera privacy mode for all devices."""
+        logger.info("Checking initial camera privacy status...")
+        try:
+            async with aiohttp.ClientSession() as session:
+                api_client = ImouAPIClient(
+                    self._cfg.imou_app_id, self._cfg.imou_app_secret, session
+                )
+                devices = await api_client.async_api_deviceBaseList()
+
+                if not devices.get("deviceList"):
+                    raise RuntimeError("No Imou devices found.")
+
+                for device_data in devices.get("deviceList", []):
+                    device_id = device_data["deviceId"]
+                    channel_name = device_data.get("channels", [{}])[0].get(
+                        "channelName", "<unknown>"
+                    )
+                    try:
+                        imou_device = ImouDevice(api_client, device_id)
+                        await imou_device.async_initialize()
+                        privacy_switch = imou_device.get_sensor_by_name("closeCamera")
+
+                        if privacy_switch:
+                            # The sensor `is_on()` method returns a boolean.
+                            await privacy_switch.async_update()
+                            state = "ON" if privacy_switch.is_on() else "OFF"  # type: ignore[attr-defined]
+                            logger.info(
+                                "Device %s (%s) -> initial privacy mode: %s",
+                                device_id,
+                                channel_name,
+                                state,
+                            )
+                        else:
+                            logger.debug(
+                                "Device %s (%s) lacks privacy switch - skipping",
+                                device_id,
+                                channel_name,
+                            )
+                    except Exception as exc:
+                        logger.error(
+                            "Error checking device %s (%s): %s",
+                            device_id,
+                            channel_name,
+                            exc,
+                        )
+        except Exception as exc:
+            logger.error("Failed to check initial camera states: %s", exc)
 
     async def _handle_sia_event(self, event: SIAEvent) -> None:  # noqa: D401
         """Async callback processing inbound SIA events."""
@@ -277,14 +329,17 @@ def show_config_files() -> None:  # pragma: no cover
         # Use importlib.resources.files to get a traversable object for the package
         # In this case, for a top-level module, we refer to it directly.
         from importlib.resources import files
+
         service_file = files("sia_bridge").joinpath("sia-bridge.service")
         config_file = files("sia_bridge").joinpath("sia-bridge.conf")
     except (ImportError, AttributeError):
         # Fallback for older Python versions if needed, though requires-python>=3.9
         # should make this unnecessary.
-        print("Error: Could not locate packaged data files. Please ensure you are using Python 3.9+.", file=sys.stderr)
+        print(
+            "Error: Could not locate packaged data files. Please ensure you are using Python 3.9+.",
+            file=sys.stderr,
+        )
         sys.exit(1)
-
 
     print("SIA Bridge configuration files location:")
     print(f"  Service file: {service_file}")
