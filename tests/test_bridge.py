@@ -6,9 +6,10 @@ Sends ARM (CL) or DISARM (OP) events.
 
 from unittest.mock import AsyncMock, MagicMock, patch
 import logging
+import signal
 
 import pytest
-from sia_bridge import SIABridge, Config, configure_logging
+from sia_bridge import SIABridge, SIAEvent, Config, configure_logging, show_config_files, main
 
 # pylint: disable=redefined-outer-name, unused-argument
 
@@ -166,7 +167,9 @@ async def test_log_initial_camera_state_device_error(bridge, mock_imou_api, capl
     )
     with caplog.at_level(logging.ERROR):
         await bridge._log_initial_camera_state()
-        assert "Error checking device test_device_1 (Cam 1): Device Failure" in caplog.text
+        assert (
+            "Error checking device test_device_1 (Cam 1): Device Failure" in caplog.text
+        )
 
 
 @pytest.mark.asyncio
@@ -189,7 +192,6 @@ async def test_set_privacy_mode_no_privacy_switch(bridge, mock_imou_api, caplog)
         await bridge._set_privacy_mode(True)
         assert "lacks privacy switch - skipping" in caplog.text
     mock_imou_api["privacy_switch"].async_turn_on.assert_not_called()
-
 
 
 @pytest.mark.asyncio
@@ -257,3 +259,39 @@ def test_configure_logging(mock_basic_config, level_str, expected_level):
     mock_basic_config.assert_called_once()
     _, kwargs = mock_basic_config.call_args
     assert kwargs["level"] == expected_level
+
+
+def test_request_shutdown(bridge):
+    """Test the signal handler for shutdown requests."""
+    assert not bridge._stop_event.is_set()
+    bridge.request_shutdown(signal.SIGINT)
+    assert bridge._stop_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_main_loop(mocker):
+    """Test the main async entrypoint and graceful shutdown."""
+    mock_asyncio_run = mocker.patch("asyncio.run")
+    mock_main = mocker.patch("sia_bridge._async_main", new_callable=MagicMock)
+
+    main()
+    mock_asyncio_run.assert_called_once_with(mock_main())
+
+    # Test KeyboardInterrupt
+    mock_asyncio_run.reset_mock()
+    mock_asyncio_run.side_effect = KeyboardInterrupt
+    main()  # Should not raise
+
+    # Test other exceptions
+    mock_asyncio_run.reset_mock()
+    mock_asyncio_run.side_effect = Exception("test error")
+    with pytest.raises(SystemExit):
+        main()
+
+
+def test_show_config_files(capsys):
+    """Test the utility function for showing config file paths."""
+    show_config_files()
+    captured = capsys.readouterr()
+    assert "sia-bridge.service" in captured.out
+    assert "sia-bridge.conf" in captured.out
