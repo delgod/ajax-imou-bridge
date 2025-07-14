@@ -63,7 +63,7 @@ class Config:
             logger.error("Invalid BIND_PORT value: %s", os.environ.get("BIND_PORT"))
             raise SystemExit(1) from exc
 
-        bind_ip = os.getenv("BIND_IP", "0.0.0.0")
+        bind_ip = os.getenv("BIND_IP", "0.0.0.0")  # nosec B104
         sia_account_id = os.getenv("SIA_ACCOUNT", "000")
         sia_encryption_key = os.getenv("SIA_ENCRYPTION_KEY")
         log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -140,7 +140,8 @@ class SIABridge:
         )
 
         # Tell type checkers `_client` is definitely assigned from here on.
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("SIAClient has not been initialized.")
 
         logger.info(
             "Starting SIA TCP server on %s:%d", self._cfg.bind_ip, self._cfg.bind_port
