@@ -54,7 +54,7 @@ To configure the Hub, you will need administrator privileges for the Ajax system
     *   **Ethernet**: Enable if the Hub can reach the bridge over a local network.
     *   **Cellular**: Enable if the Hub can reach the bridge over the internet via a public IP address.
     *   **IP address**: The IP address of the server where the bridge is running.
-    *   **Port**: The `SIA_PORT` you have configured (e.g., `12128`).
+    *   **Port**: The `BIND_PORT` you have configured (e.g., `12128`).
     *   **Monitoring station ping interval**: Set as required.
     *   **Object number**: The `SIA_ACCOUNT` you have configured.
     *   **Encryption key**: The `SIA_ENCRYPTION_KEY` if you are using one.
@@ -64,7 +64,8 @@ To configure the Hub, you will need administrator privileges for the Ajax system
 ## Configuration
 | Variable | Description | Validation | Default | Required |
 | :--- | :--- | :--- | :--- | :--- |
-| `SIA_PORT` | The TCP port for the SIA listener. | 1-49151 | 12128 | Yes |
+| `BIND_PORT` | The TCP port for the SIA listener. | 1-49151 | 12128 | Yes |
+| `BIND_IP` | The IP address to listen on for SIA protocol messages. | IPv4/IPv6 address | 0.0.0.0 | No |
 | `SIA_ACCOUNT` | The SIA account identifier, as configured in your Ajax Hub. | 3-16 hex chars | 000 | Yes |
 | `SIA_ENCRYPTION_KEY` | The optional SIA encryption key. Must match the key in your Ajax Hub. | 16 or 32 hex chars| None | No |
 | `IMOU_APP_ID` | Your application ID from the Imou Developer Portal. | | None | Yes |
@@ -77,10 +78,10 @@ docker run -d \
     --name sia-bridge \
     --restart unless-stopped \
     -p 12128:12128 \
-    -e SIA_PORT=12128 \
-    -e SIA_ACCOUNT=000 \
-    -e IMOU_APP_ID=<your_app_id> \
-    -e IMOU_APP_SECRET=<your_app_secret> \
+    -e BIND_PORT=12128 \
+    -e SIA_ACCOUNT="000" \
+    -e IMOU_APP_ID="<your_app_id>" \
+    -e IMOU_APP_SECRET="<your_app_secret>" \
     ghcr.io/delgod/sia-bridge:latest
 ```
 See configuration section above.
@@ -102,7 +103,7 @@ See configuration section above.
     ```ini
     # /etc/sia-bridge.conf
 
-    SIA_PORT=12128
+    BIND_PORT=12128
     SIA_ACCOUNT=000
     SIA_ENCRYPTION_KEY=
     IMOU_APP_ID=
@@ -132,7 +133,7 @@ To enable verbose logging for troubleshooting, set `LOG_LEVEL=DEBUG` and restart
 
 **Common Issues:**
 
-*   **Connection Refused**: Check your firewall rules and ensure the `SIA_PORT` is open on the host running the bridge, allowing inbound connections from your Ajax Hub.
+*   **Connection Refused**: Check your firewall rules and ensure the `BIND_PORT` is open on the host running the bridge, allowing inbound connections from your Ajax Hub.
 *   **Authentication Failed**: Double-check your `IMOU_APP_ID` and `IMOU_APP_SECRET`.
 *   **No Devices Found**: Ensure your cameras are online, controllable in your Imou Life application and support the privacy mode feature.
 

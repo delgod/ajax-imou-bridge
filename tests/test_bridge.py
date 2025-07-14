@@ -17,7 +17,8 @@ from sia_bridge import SIABridge, Config, configure_logging
 def mock_config():
     """Provides a mock Config object for tests."""
     return Config(
-        port=12345,
+        bind_port=12345,
+        bind_ip="0.0.0.0",
         sia_account_id="test_account",
         sia_encryption_key=None,
         imou_app_id="test_app_id",
@@ -209,13 +210,13 @@ async def test_set_privacy_mode_off(bridge, mock_imou_api):
 
 def test_config_from_env_valid(monkeypatch):
     """Test config loading with valid environment variables."""
-    monkeypatch.setenv("SIA_PORT", "1234")
+    monkeypatch.setenv("BIND_PORT", "1234")
     monkeypatch.setenv("SIA_ACCOUNT", "my_account")
     monkeypatch.setenv("IMOU_APP_ID", "my_app_id")
     monkeypatch.setenv("IMOU_APP_SECRET", "my_app_secret")
 
     config = Config.from_env()
-    assert config.port == 1234
+    assert config.bind_port == 1234
     assert config.sia_account_id == "my_account"
     assert config.imou_app_id == "my_app_id"
 
@@ -224,13 +225,14 @@ def test_config_from_env_missing_required(monkeypatch):
     """Test config loading with missing required environment variables."""
     # Unset a required variable
     monkeypatch.delenv("IMOU_APP_ID", raising=False)
+    monkeypatch.delenv("IMOU_APP_SECRET", raising=False)
     with pytest.raises(SystemExit):
         Config.from_env()
 
 
 def test_config_from_env_invalid_port(monkeypatch):
     """Test config loading with an invalid port value."""
-    monkeypatch.setenv("SIA_PORT", "not-a-number")
+    monkeypatch.setenv("BIND_PORT", "not-a-number")
     monkeypatch.setenv("IMOU_APP_ID", "my_app_id")
     monkeypatch.setenv("IMOU_APP_SECRET", "my_app_secret")
     with pytest.raises(SystemExit):

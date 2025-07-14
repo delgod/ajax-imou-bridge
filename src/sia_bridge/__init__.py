@@ -8,7 +8,8 @@ containerisation / deployment.
 
 Environment Variables
 ---------------------
-SIA_PORT              Port to bind the SIA TCP server             (default: 12128)
+BIND_IP               IP address to bind the SIA TCP server to    (default: 0.0.0.0)
+BIND_PORT             Port to bind the SIA TCP server             (default: 12128)
 SIA_ACCOUNT           SIA account identifier (3-16 hex chars)     (default: "000")
 SIA_ENCRYPTION_KEY    Optional SIA encryption key (hex string)
 IMOU_APP_ID           Imou cloud application id                   (required)
@@ -45,7 +46,8 @@ logger = logging.getLogger(LOGGER_NAME)
 class Config:
     """Runtime configuration object populated from environment variables."""
 
-    port: int
+    bind_ip: str
+    bind_port: int
     sia_account_id: str
     sia_encryption_key: Optional[str]
     imou_app_id: str
@@ -56,11 +58,12 @@ class Config:
     def from_env(cls) -> "Config":
         """Build a :class:`Config` instance using environment variables."""
         try:
-            port = int(os.getenv("SIA_PORT", "12128"))
+            bind_port = int(os.getenv("BIND_PORT", "12128"))
         except ValueError as exc:
-            logger.error("Invalid SIA_PORT value: %s", os.environ.get("SIA_PORT"))
+            logger.error("Invalid BIND_PORT value: %s", os.environ.get("BIND_PORT"))
             raise SystemExit(1) from exc
 
+        bind_ip = os.getenv("BIND_IP", "0.0.0.0")
         sia_account_id = os.getenv("SIA_ACCOUNT", "000")
         sia_encryption_key = os.getenv("SIA_ENCRYPTION_KEY")
         log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -74,7 +77,8 @@ class Config:
             raise SystemExit(1)
 
         return cls(
-            port=port,
+            bind_ip=bind_ip,
+            bind_port=bind_port,
             sia_account_id=sia_account_id,
             sia_encryption_key=sia_encryption_key,
             imou_app_id=imou_app_id,
@@ -122,8 +126,8 @@ class SIABridge:
         await self._log_initial_camera_state()
 
         self._client = SIAClient(  # type: ignore[abstract]
-            host="0.0.0.0",
-            port=self._cfg.port,
+            host=self._cfg.bind_ip,
+            port=self._cfg.bind_port,
             accounts=[
                 SIAAccount(
                     account_id=self._cfg.sia_account_id,
@@ -138,7 +142,9 @@ class SIABridge:
         # Tell type checkers `_client` is definitely assigned from here on.
         assert self._client is not None
 
-        logger.info("Starting SIA TCP server on port %d", self._cfg.port)
+        logger.info(
+            "Starting SIA TCP server on %s:%d", self._cfg.bind_ip, self._cfg.bind_port
+        )
         await self._client.async_start(reuse_port=True)
         logger.info("SIA TCP server started - waiting for events...")
 
