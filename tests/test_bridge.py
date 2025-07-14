@@ -9,7 +9,7 @@ import logging
 import signal
 
 import pytest
-from sia_bridge import SIABridge, SIAEvent, Config, configure_logging, show_config_files, main
+from sia_bridge import SIABridge, Config, configure_logging, show_config_files, main
 
 # pylint: disable=redefined-outer-name, unused-argument
 
