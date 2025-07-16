@@ -123,7 +123,7 @@ class SIABridge:
             return
 
         # Log initial camera state before starting the server.
-        await self._log_initial_camera_state()
+        await self._run_imou_action("privacy_check")
 
         self._client = SIAClient(  # type: ignore[abstract]
             host=self._cfg.bind_ip,
@@ -167,9 +167,11 @@ class SIABridge:
     # Internal helpers
     # ---------------------------------------------------------------------
 
-    async def _log_initial_camera_state(self) -> None:
-        """Log the initial state of camera privacy mode for all devices."""
-        logger.info("Checking initial camera privacy status...")
+    async def _run_imou_action(self, action: str) -> None:
+        """Run an Imou action for all devices."""
+        if action not in ("privacy_on", "privacy_off", "privacy_check"):
+            raise ValueError(f"Unknown action: {action}")
+        logger.info("Running Imou action: %s", action)
         try:
             async with aiohttp.ClientSession() as session:
                 api_client = ImouAPIClient(
@@ -178,7 +180,8 @@ class SIABridge:
                 devices = await api_client.async_api_deviceBaseList()
 
                 if not devices.get("deviceList"):
-                    raise RuntimeError("No Imou devices found.")
+                    logger.warning("No Imou devices found.")
+                    return
 
                 for device_data in devices.get("deviceList", []):
                     device_id = device_data["deviceId"]
@@ -188,33 +191,52 @@ class SIABridge:
                     try:
                         imou_device = ImouDevice(api_client, device_id)
                         await imou_device.async_initialize()
-                        privacy_switch = imou_device.get_sensor_by_name("closeCamera")
 
-                        if privacy_switch:
-                            # The sensor `is_on()` method returns a boolean.
-                            await privacy_switch.async_update()
-                            state = "ON" if privacy_switch.is_on() else "OFF"  # type: ignore[attr-defined]
+                        await imou_device.async_refresh_status()
+                        if not imou_device.is_online():
                             logger.info(
-                                "Device %s (%s) -> initial privacy mode: %s",
+                                "Device %s (%s) is offline - skipping",
                                 device_id,
                                 channel_name,
-                                state,
                             )
-                        else:
+                            continue
+
+                        privacy_switch = imou_device.get_sensor_by_name("closeCamera")
+                        if privacy_switch is None:
                             logger.debug(
                                 "Device %s (%s) lacks privacy switch - skipping",
                                 device_id,
                                 channel_name,
                             )
+                            continue
+
+                        if action == "privacy_on":
+                            await privacy_switch.async_turn_on()  # type: ignore[attr-defined]
+                        elif action == "privacy_off":
+                            await privacy_switch.async_turn_off()  # type: ignore[attr-defined]
+                        elif action == "privacy_check":
+                            await privacy_switch.async_update()
+                        else:
+                            raise ValueError(f"Unknown action: {action}")
+
+                        # The sensor `is_on()` method returns a boolean.
+                        state = "ON" if privacy_switch.is_on() else "OFF"  # type: ignore[attr-defined]
+                        logger.info(
+                            "Device %s (%s) -> privacy mode: %s",
+                            device_id,
+                            channel_name,
+                            state,
+                        )
                     except Exception as exc:
                         logger.error(
-                            "Error checking device %s (%s): %s",
+                            "Error checking device %s (%s): %s - continuing with other devices",
                             device_id,
                             channel_name,
                             exc,
                         )
+                        continue
         except Exception as exc:
-            logger.error("Failed to check initial camera states: %s", exc)
+            logger.error("Failed to check camera states: %s", exc)
 
     async def _handle_sia_event(self, event: SIAEvent) -> None:  # noqa: D401
         """Async callback processing inbound SIA events."""
@@ -231,55 +253,10 @@ class SIABridge:
         # Map SIA codes to privacy mode state.
         if event.code in {"CL", "NL"}:  # ARM
             logger.info("Handling ARM event -> disabling privacy mode")
-            await self._set_privacy_mode(False)
+            await self._run_imou_action("privacy_off")
         elif event.code == "OP":  # DISARM
             logger.info("Handling DISARM event -> enabling privacy mode")
-            await self._set_privacy_mode(True)
-
-    async def _set_privacy_mode(self, enabled: bool) -> None:
-        """Toggle Imou camera privacy mode.
-
-        Serialised via an instance-level asyncio.Lock so that only one
-        privacy-mode operation can run at a time, even if multiple SIA
-        events arrive in quick succession.
-        """
-
-        async with self._privacy_lock:
-            mode_str = "ON" if enabled else "OFF"
-            logger.info("Toggling camera privacy mode: %s", mode_str)
-
-            async with aiohttp.ClientSession() as session:
-                api_client = ImouAPIClient(
-                    self._cfg.imou_app_id, self._cfg.imou_app_secret, session
-                )
-                devices = await api_client.async_api_deviceBaseList()
-
-                for device in devices.get("deviceList", []):
-                    imou_device = ImouDevice(api_client, device["deviceId"])
-                    await imou_device.async_initialize()
-
-                    privacy_switch = imou_device.get_sensor_by_name("closeCamera")
-                    if privacy_switch is None:
-                        logger.debug(
-                            "Device %s lacks privacy switch - skipping",
-                            device["deviceId"],
-                        )
-                        continue
-
-                    if enabled:
-                        await privacy_switch.async_turn_on()  # type: ignore[attr-defined]
-                    else:
-                        await privacy_switch.async_turn_off()  # type: ignore[attr-defined]
-
-                    channel_name = device.get("channels", [{}])[0].get(
-                        "channelName", "<unknown>"
-                    )
-                    logger.info(
-                        "Device %s (%s) -> privacy mode %s",
-                        device["deviceId"],
-                        channel_name,
-                        mode_str,
-                    )
+            await self._run_imou_action("privacy_on")
 
     # ---------------------------------------------------------------------
     # Signal handling helpers

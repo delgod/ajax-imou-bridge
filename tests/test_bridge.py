@@ -38,6 +38,17 @@ def mock_sia_client():
 
 
 @pytest.fixture
+def mock_aiohttp_session():
+    """Provides a mock aiohttp ClientSession."""
+    with patch("sia_bridge.aiohttp.ClientSession") as mock_session_cls:
+        mock_session = MagicMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+        mock_session_cls.return_value = mock_session
+        yield mock_session
+
+
+@pytest.fixture
 def mock_imou_api():
     """Provides a mock ImouAPIClient and related objects."""
     with patch("sia_bridge.ImouAPIClient") as mock_api:
@@ -58,10 +69,12 @@ def mock_imou_api():
             privacy_switch = MagicMock()
             privacy_switch.async_turn_on = AsyncMock()
             privacy_switch.async_turn_off = AsyncMock()
-            privacy_switch.is_on = MagicMock(return_value=False)
             privacy_switch.async_update = AsyncMock()
+            privacy_switch.is_on = MagicMock(return_value=False)
 
             mock_device.return_value.async_initialize = AsyncMock()
+            mock_device.return_value.async_refresh_status = AsyncMock()
+            mock_device.return_value.is_online = MagicMock(return_value=True)
             mock_device.return_value.get_sensor_by_name = MagicMock(
                 return_value=privacy_switch
             )
@@ -73,7 +86,7 @@ def mock_imou_api():
 
 
 @pytest.fixture
-def bridge(mock_config, mock_sia_client, mock_imou_api):
+def bridge(mock_config, mock_sia_client, mock_imou_api, mock_aiohttp_session):
     """Provides an SIABridge instance with mocked dependencies."""
     return SIABridge(mock_config)
 
@@ -81,8 +94,8 @@ def bridge(mock_config, mock_sia_client, mock_imou_api):
 @pytest.mark.asyncio
 async def test_start_and_stop(bridge, mock_sia_client, mock_imou_api):
     """Verify that start and stop call the underlying client methods."""
-    # Patch the initial state check to avoid running it here
-    with patch.object(bridge, "_log_initial_camera_state", new_callable=AsyncMock):
+    # Patch the run_imou_action to avoid running it here
+    with patch.object(bridge, "_run_imou_action", new_callable=AsyncMock):
         await bridge.start()
         mock_sia_client.return_value.async_start.assert_awaited_once()
 
@@ -91,9 +104,9 @@ async def test_start_and_stop(bridge, mock_sia_client, mock_imou_api):
 
 
 @pytest.mark.asyncio
-async def test_log_initial_camera_state(bridge, mock_imou_api):
-    """Verify that the initial camera state is logged correctly."""
-    await bridge._log_initial_camera_state()
+async def test_run_imou_action_privacy_check(bridge, mock_imou_api, mock_aiohttp_session):
+    """Verify that privacy_check action logs the current camera state."""
+    await bridge._run_imou_action("privacy_check")
 
     # Verify API was called
     api_client = mock_imou_api["api_client"]
@@ -102,6 +115,8 @@ async def test_log_initial_camera_state(bridge, mock_imou_api):
     # Verify device methods were called
     device = mock_imou_api["device"]
     device.return_value.async_initialize.assert_awaited_once()
+    device.return_value.async_refresh_status.assert_awaited_once()
+    device.return_value.is_online.assert_called_once()
     device.return_value.get_sensor_by_name.assert_called_with("closeCamera")
 
     # Verify state was updated and checked
@@ -111,103 +126,123 @@ async def test_log_initial_camera_state(bridge, mock_imou_api):
 
 
 @pytest.mark.asyncio
+async def test_run_imou_action_privacy_on(bridge, mock_imou_api, mock_aiohttp_session):
+    """Verify that privacy_on action enables privacy mode."""
+    await bridge._run_imou_action("privacy_on")
+
+    privacy_switch = mock_imou_api["privacy_switch"]
+    privacy_switch.async_turn_on.assert_awaited_once()
+    privacy_switch.async_turn_off.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_run_imou_action_privacy_off(bridge, mock_imou_api, mock_aiohttp_session):
+    """Verify that privacy_off action disables privacy mode."""
+    await bridge._run_imou_action("privacy_off")
+
+    privacy_switch = mock_imou_api["privacy_switch"]
+    privacy_switch.async_turn_off.assert_awaited_once()
+    privacy_switch.async_turn_on.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_run_imou_action_unknown_action(bridge, mock_imou_api, mock_aiohttp_session):
+    """Verify that unknown action values raise ValueError."""
+    with pytest.raises(ValueError) as exc:
+        await bridge._run_imou_action("unknown_action")
+    assert "Unknown action: unknown_action" in str(exc.value)
+
+
+@pytest.mark.asyncio
 async def test_handle_sia_event_arm(bridge):
     """Verify an ARM event (CL) disables privacy mode."""
-    with patch.object(bridge, "_set_privacy_mode", new_callable=AsyncMock) as mock_set:
+    with patch.object(bridge, "_run_imou_action", new_callable=AsyncMock) as mock_action:
         mock_event = MagicMock(code="CL", sia_code=MagicMock(type="ARM"))
         await bridge._handle_sia_event(mock_event)
-        mock_set.assert_awaited_once_with(False)
+        mock_action.assert_awaited_once_with("privacy_off")
+
+
+@pytest.mark.asyncio
+async def test_handle_sia_event_arm_nl(bridge):
+    """Verify an ARM event (NL) disables privacy mode."""
+    with patch.object(bridge, "_run_imou_action", new_callable=AsyncMock) as mock_action:
+        mock_event = MagicMock(code="NL", sia_code=MagicMock(type="ARM"))
+        await bridge._handle_sia_event(mock_event)
+        mock_action.assert_awaited_once_with("privacy_off")
 
 
 @pytest.mark.asyncio
 async def test_handle_sia_event_disarm(bridge):
     """Verify a DISARM event (OP) enables privacy mode."""
-    with patch.object(bridge, "_set_privacy_mode", new_callable=AsyncMock) as mock_set:
+    with patch.object(bridge, "_run_imou_action", new_callable=AsyncMock) as mock_action:
         mock_event = MagicMock(code="OP", sia_code=MagicMock(type="DISARM"))
         await bridge._handle_sia_event(mock_event)
-        mock_set.assert_awaited_once_with(True)
+        mock_action.assert_awaited_once_with("privacy_on")
 
 
 @pytest.mark.asyncio
 async def test_handle_sia_event_unknown(bridge):
     """Verify an unknown event code is ignored."""
-    with patch.object(bridge, "_set_privacy_mode", new_callable=AsyncMock) as mock_set:
+    with patch.object(bridge, "_run_imou_action", new_callable=AsyncMock) as mock_action:
         mock_event = MagicMock(code="XX", sia_code=MagicMock(type="UNKNOWN"))
         await bridge._handle_sia_event(mock_event)
-        mock_set.assert_not_awaited()
+        mock_action.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_log_initial_camera_state_no_devices(bridge, mock_imou_api, caplog):
+async def test_run_imou_action_no_devices(bridge, mock_imou_api, mock_aiohttp_session, caplog):
     """Verify behavior when no Imou devices are found."""
     mock_imou_api["api_client"].return_value.async_api_deviceBaseList.return_value = {
         "deviceList": []
     }
-    with caplog.at_level(logging.ERROR):
-        await bridge._log_initial_camera_state()
+    with caplog.at_level(logging.WARNING):
+        await bridge._run_imou_action("privacy_check")
         assert "No Imou devices found" in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_log_initial_camera_state_api_error(bridge, mock_imou_api, caplog):
+async def test_run_imou_action_api_error(bridge, mock_imou_api, mock_aiohttp_session, caplog):
     """Verify behavior when the Imou API call fails."""
-    mock_imou_api["api_client"].return_value.async_api_deviceBaseList.side_effect = (
-        Exception("API Failure")
-    )
+    mock_imou_api[
+        "api_client"
+    ].return_value.async_api_deviceBaseList.side_effect = Exception("API Failure")
     with caplog.at_level(logging.ERROR):
-        await bridge._log_initial_camera_state()
-        assert "Failed to check initial camera states: API Failure" in caplog.text
+        await bridge._run_imou_action("privacy_check")
+        assert "Failed to check camera states: API Failure" in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_log_initial_camera_state_device_error(bridge, mock_imou_api, caplog):
+async def test_run_imou_action_device_error(bridge, mock_imou_api, mock_aiohttp_session, caplog):
     """Verify behavior when a specific device fails to initialize."""
     mock_imou_api["device"].return_value.async_initialize.side_effect = Exception(
         "Device Failure"
     )
     with caplog.at_level(logging.ERROR):
-        await bridge._log_initial_camera_state()
+        await bridge._run_imou_action("privacy_check")
         assert (
-            "Error checking device test_device_1 (Cam 1): Device Failure" in caplog.text
+            "Error checking device test_device_1 (Cam 1): Device Failure - continuing with other devices" in caplog.text
         )
 
 
 @pytest.mark.asyncio
-async def test_log_initial_camera_state_no_privacy_switch(
-    bridge, mock_imou_api, caplog
+async def test_run_imou_action_device_offline(bridge, mock_imou_api, mock_aiohttp_session, caplog):
+    """Verify behavior when a device is offline."""
+    mock_imou_api["device"].return_value.is_online.return_value = False
+    with caplog.at_level(logging.INFO):
+        await bridge._run_imou_action("privacy_check")
+        assert "is offline - skipping" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_run_imou_action_no_privacy_switch(
+    bridge, mock_imou_api, mock_aiohttp_session, caplog
 ):
     """Verify behavior for a device without a privacy switch."""
     mock_imou_api["device"].return_value.get_sensor_by_name.return_value = None
     with caplog.at_level(logging.DEBUG):
-        await bridge._log_initial_camera_state()
+        await bridge._run_imou_action("privacy_check")
         assert "lacks privacy switch - skipping" in caplog.text
     mock_imou_api["privacy_switch"].async_update.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_set_privacy_mode_no_privacy_switch(bridge, mock_imou_api, caplog):
-    """Verify _set_privacy_mode skips devices without a privacy switch."""
-    mock_imou_api["device"].return_value.get_sensor_by_name.return_value = None
-    with caplog.at_level(logging.DEBUG):
-        await bridge._set_privacy_mode(True)
-        assert "lacks privacy switch - skipping" in caplog.text
-    mock_imou_api["privacy_switch"].async_turn_on.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_set_privacy_mode_on(bridge, mock_imou_api):
-    """Verify that privacy mode is correctly turned ON."""
-    await bridge._set_privacy_mode(True)
-    mock_imou_api["privacy_switch"].async_turn_on.assert_awaited_once()
-    mock_imou_api["privacy_switch"].async_turn_off.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_set_privacy_mode_off(bridge, mock_imou_api):
-    """Verify that privacy mode is correctly turned OFF."""
-    await bridge._set_privacy_mode(False)
-    mock_imou_api["privacy_switch"].async_turn_off.assert_awaited_once()
-    mock_imou_api["privacy_switch"].async_turn_on.assert_not_awaited()
 
 
 def test_config_from_env_valid(monkeypatch):
